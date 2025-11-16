@@ -37,6 +37,31 @@ WITH WAREHOUSE_TYPE = 'STANDARD'      -- Standard warehouse type (vs. SNOWPARK-O
 -- In Snowflake, a DATABASE contains SCHEMAS, which contain TABLES/VIEWS.
 -- The three-part identifier is: database.schema.object_name
 
+-- ============================================================================
+-- ACQUIRE MARKETPLACE DATA: OpenStreetMap New York
+-- ============================================================================
+-- The first step in this lab is to acquire a geospatial data set that you can 
+-- freely use to explore the basics of Snowflake's geospatial functionality. 
+-- The best place to acquire this data is the Snowflake Marketplace!
+--
+-- Follow these steps to acquire the OpenStreetMap New York dataset:
+
+--   - Navigate to the Marketplace screen using the menu on the left side
+--   - Search for "OpenStreetMap New York" in the search bar
+--   - Find and click the "Sonra OpenStreetMap New York" tile
+--   - Once in the listing, click the big blue "Get Data" button
+--   - On the Get Data screen, Click on Optionschange the name of the database from the default 
+--     to "OSM_NEWYORK" (this shorter name will be used in all future instructions)
+--   - Click the big blue "Query Data" button
+--
+-- Congratulations! You have just created a shared database from a listing on 
+-- the Snowflake Marketplace. The OSM_NEWYORK database contains OpenStreetMap 
+-- data for New York City and is now available for use in this lab.
+--
+-- The database contains multiple schemas with various views and tables containing
+-- geospatial data about shops, restaurants, buildings, and other features in NYC.
+-- ============================================================================
+
 // Set the working database schema
 -- This sets the default context so you don't need to fully qualify object names
 use schema osm_newyork.new_york;
@@ -763,7 +788,7 @@ select st_collect(polygon) from final_plot;
 
 
 -- ============================================================================
--- ADD-ON: GEOMETRY DATA TYPE (Planar Geometry)
+-- GEOMETRY DATA TYPE (Planar Geometry)
 -- ============================================================================
 -- Snowflake also supports GEOMETRY type for planar (Euclidean) geometry calculations.
 -- This section demonstrates when and how to use GEOMETRY vs GEOGRAPHY.
@@ -794,6 +819,10 @@ select st_collect(polygon) from final_plot;
 --   - 2263: NAD83 / New York Long Island (State Plane, feet)
 --   - 32618: WGS84 / UTM Zone 18N (meters) - covers NYC area
 
+-- Switch to our local database schema to create tables
+-- We cannot create tables in the shared OSM_NEWYORK database, so we use geocodelab
+use schema geocodelab.public;
+
 -- Create a GEOMETRY table for local NYC data using State Plane coordinates
 -- Note: We'll use a simple example with WGS84 (4326) for demonstration
 create or replace table electronics_geometry 
@@ -804,27 +833,34 @@ create or replace table electronics_geometry
 -- Example: Creating a point in NYC using WGS84 (SRID 4326)
 select to_geometry('POINT(-73.986226 40.755702)', 4326) as geom_point;
 
--- ST_MAKEPOINT() also works with GEOMETRY, but you need to specify SRID
--- Note: ST_MAKEPOINT for GEOMETRY requires coordinates in the projection's units
--- For WGS84 (4326), coordinates are still lat/lon, but stored as planar
-select st_makepoint(-73.986226, 40.755702)::geometry(4326) as geom_point;
+-- Important: ST_MAKEPOINT() creates GEOGRAPHY type, not GEOMETRY
+-- To create a GEOMETRY point, you must use TO_GEOMETRY() with a WKT string and SRID
+-- Example: Comparing ST_MAKEPOINT (GEOGRAPHY) vs TO_GEOMETRY (GEOMETRY)
+select 
+    st_makepoint(-73.986226, 40.755702) as geog_point,  -- Returns GEOGRAPHY
+    to_geometry('POINT(-73.986226 40.755702)', 4326) as geom_point;  -- Returns GEOMETRY with SRID 4326
 
 -- ============================================================================
 -- CONVERTING BETWEEN GEOGRAPHY AND GEOMETRY
 -- ============================================================================
 -- You can convert between GEOGRAPHY and GEOMETRY types:
+-- Note: According to Snowflake docs (https://docs.snowflake.com/en/sql-reference/functions/to_geography),
+--       TO_GEOGRAPHY() does NOT take an SRID parameter - it always returns GEOGRAPHY (WGS84).
+--       The SRID parameter is only for TO_GEOMETRY().
 
--- GEOGRAPHY to GEOMETRY: Cast to GEOMETRY with SRID 4326
--- Note: GEOGRAPHY is always WGS84, so use SRID 4326
+-- GEOGRAPHY to GEOMETRY: Convert by creating GEOMETRY from the same WKT string with SRID 4326
+-- Note: GEOGRAPHY is always WGS84 internally, so when converting to GEOMETRY use SRID 4326
+-- You cannot directly cast GEOGRAPHY to GEOMETRY - you must recreate it using TO_GEOMETRY()
 select 
     to_geography('POINT(-73.986226 40.755702)') as geog,
-    to_geography('POINT(-73.986226 40.755702)')::geometry(4326) as geom_from_geog;
+    to_geometry('POINT(-73.986226 40.755702)', 4326) as geom_from_same_wkt;
 
--- GEOMETRY to GEOGRAPHY: Cast to GEOGRAPHY (only works if SRID is 4326)
--- If GEOMETRY has a different SRID, you must transform it first (see ST_TRANSFORM)
+-- GEOMETRY to GEOGRAPHY: Use TO_GEOGRAPHY() with GEOMETRY expression (only works if SRID is 4326)
+-- According to Snowflake docs, TO_GEOGRAPHY() can accept a GEOMETRY expression with SRID 4326
+-- If GEOMETRY has a different SRID, you must transform it first using ST_TRANSFORM()
 select 
     to_geometry('POINT(-73.986226 40.755702)', 4326) as geom,
-    to_geometry('POINT(-73.986226 40.755702)', 4326)::geography as geog_from_geom;
+    to_geography(to_geometry('POINT(-73.986226 40.755702)', 4326)) as geog_from_geom;
 
 -- ============================================================================
 -- GEOMETRY-SPECIFIC FUNCTIONS
