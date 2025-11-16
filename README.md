@@ -1,6 +1,6 @@
 # TMU Geospatial Lab: Snowflake Geospatial Operations
 
-This lab introduces geospatial operations in Snowflake for students who are already familiar with geospatial concepts but new to Snowflake. The lab covers Snowflake's native GEOGRAPHY data type, spatial functions, and practical applications using OpenStreetMap data for New York City.
+This lab introduces geospatial operations in Snowflake for students who are already familiar with geospatial concepts but new to Snowflake. The lab covers Snowflake's native GEOGRAPHY and GEOMETRY data types, spatial functions, and practical applications using OpenStreetMap data for New York City. The main lab focuses on GEOGRAPHY (spherical geometry), with an add-on section exploring GEOMETRY (planar geometry) for advanced use cases.
 
 ## Prerequisites
 
@@ -62,27 +62,37 @@ This lab is based on Snowflake's official geospatial guide: [Getting Started wit
    - Working with different formats: GeoJSON, WKT, WKB
    - Converting between formats
 
-2b. **GEOMETRY Data Type (Add-on Section)**
+2b. **GEOMETRY Data Type**
    - Understanding GEOMETRY type (planar/Euclidean geometry)
-   - When to use GEOMETRY vs GEOGRAPHY
-   - Working with Spatial Reference System Identifiers (SRIDs)
-   - Converting between GEOGRAPHY and GEOMETRY
-   - Coordinate system transformations with ST_TRANSFORM()
+   - When to use GEOMETRY vs GEOGRAPHY:
+     * Use GEOGRAPHY for GPS coordinates, global data, web mapping applications
+     * Use GEOMETRY for local/regional data, CAD drawings, fast calculations
+   - Working with Spatial Reference System Identifiers (SRIDs):
+     * Common SRIDs: WGS84 (4326), Web Mercator (3857), State Plane (2263), UTM zones
+     * Specifying SRID when creating GEOMETRY objects
+   - Creating GEOMETRY objects using TO_GEOMETRY() with WKT strings and SRID
+   - Converting between GEOGRAPHY and GEOMETRY:
+     * GEOGRAPHY → GEOMETRY: Recreate using TO_GEOMETRY() with WKT and SRID 4326
+     * GEOMETRY → GEOGRAPHY: Use TO_GEOGRAPHY() with GEOMETRY (only works if SRID is 4326)
+   - GEOMETRY-specific functions:
+     * ST_TRANSFORM() for coordinate system transformations
+     * ST_AREA() for area calculations in coordinate system units
    - Comparing spherical vs planar distance calculations
+   - Working with projected coordinate systems (State Plane, UTM)
 
-3. **Data Management**
+1. **Data Management**
    - Unloading data to Snowflake stages
    - Loading geospatial data into tables
    - Working with file formats
 
-4. **Geospatial Functions**
+2. **Geospatial Functions**
    - **Accessors**: ST_X(), ST_Y() - extracting coordinates
    - **Constructors**: TO_GEOGRAPHY(), TO_GEOMETRY(), ST_MAKEPOINT(), ST_MAKELINE(), ST_MAKEPOLYGON()
    - **Transformations**: ST_COLLECT() - aggregating geometries, ST_TRANSFORM() - coordinate system transformations
    - **Measurements**: ST_DISTANCE(), ST_LENGTH(), ST_PERIMETER(), ST_AREA()
    - **Spatial Predicates**: ST_DWITHIN(), ST_WITHIN()
 
-5. **Spatial Queries**
+3. **Spatial Queries**
    - Finding nearby locations
    - Spatial joins
    - Creating routes and polygons
@@ -109,12 +119,32 @@ You'll work through a practical scenario: planning a shopping trip in New York C
 If you're coming from PostGIS or other geospatial databases, here are some important differences:
 
 - **Two Geospatial Types**: Snowflake supports both GEOGRAPHY (spherical) and GEOMETRY (planar) types, similar to PostGIS
-  - **GEOGRAPHY**: Always uses WGS84, great-circle calculations, best for GPS/web data
-  - **GEOMETRY**: Requires SRID specification, planar calculations, best for local/regional data
-- **GEOGRAPHY Default**: Most examples use GEOGRAPHY (spherical) with great-circle distance calculations
-- **Longitude First**: Always use longitude before latitude (x, y) convention
+  - **GEOGRAPHY**: Always uses WGS84 internally, great-circle calculations, best for GPS/web data, global analysis
+  - **GEOMETRY**: Requires SRID specification, planar/Euclidean calculations, best for local/regional data, CAD, engineering
+- **GEOGRAPHY Default**: Most examples in this lab use GEOGRAPHY (spherical) with great-circle distance calculations
+- **TO_GEOGRAPHY() vs TO_GEOMETRY()**:
+  - `TO_GEOGRAPHY()` does NOT take an SRID parameter - it always returns GEOGRAPHY (WGS84)
+  - `TO_GEOMETRY()` requires an SRID parameter to specify the coordinate system
+- **ST_MAKEPOINT()**: Creates GEOGRAPHY type, not GEOMETRY. Use `TO_GEOMETRY()` with WKT and SRID for GEOMETRY points
+- **Type Conversions**:
+  - You cannot directly cast GEOGRAPHY to GEOMETRY using `::geometry` syntax
+  - Convert GEOGRAPHY → GEOMETRY by recreating with `TO_GEOMETRY()` using the WKT string
+  - Convert GEOMETRY → GEOGRAPHY using `TO_GEOGRAPHY()` with GEOMETRY expression (only if SRID is 4326)
+- **Longitude First**: Always use longitude before latitude (x, y) convention in WKT strings
 - **Warehouses**: Compute resources that execute queries (separate from storage)
 - **Stages**: File storage locations (internal or external to cloud storage)
+
+## Additional Snowflake Geospatial Labs & Guides
+
+Expand your geospatial knowledge with these additional Snowflake guides:
+
+- **[Geo Analysis with GEOMETRY](https://www.snowflake.com/en/developers/guides/geo-analysis-geometry/)** - Deep dive into GEOMETRY data type, working with projected coordinate systems, and planar geometry operations
+
+- **[Geospatial Data for Machine Learning](https://www.snowflake.com/en/developers/guides/geo-for-machine-learning/)** - Learn how to use geospatial data in ML workflows, feature engineering, and spatial ML models
+
+- **[Using Precisely to Enrich Data](https://www.snowflake.com/en/developers/guides/using-precisely-enrich-data/)** - Explore how to enrich your geospatial data with location intelligence and demographic data
+
+- **[Credit Card Fraud Detection with Snowflake ML Functions](https://www.snowflake.com/en/developers/guides/credit-card-fraud-detection-with-snowflake-ml-functions/)** - Advanced example combining geospatial analysis with machine learning for fraud detection
 
 ## Getting Help
 
@@ -125,9 +155,11 @@ If you're coming from PostGIS or other geospatial databases, here are some impor
 ## Notes
 
 - The lab uses data from Snowflake Marketplace (OpenStreetMap New York data)
-- All distances are calculated in meters using great-circle distance
+- GEOGRAPHY distances are calculated in meters using great-circle distance (spherical geometry)
+- GEOMETRY distances are calculated in the units of the coordinate system (planar/Euclidean geometry)
 - The lab assumes you're working in the Snowflake web interface (Worksheets)
 - Make sure you have ACCOUNTADMIN role to access Marketplace data
+- The GEOMETRY section is an add-on that can be completed after mastering GEOGRAPHY concepts
 
 ## Troubleshooting
 
