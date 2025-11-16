@@ -50,10 +50,17 @@ desc view v_osm_ny_shop_electronics;
 -- SNOWFLAKE GEOGRAPHY OUTPUT FORMATS
 -- ============================================================================
 -- Snowflake stores geospatial data internally in a binary format, but can display
--- it in multiple standard formats. The GEOGRAPHY data type in Snowflake follows
--- OGC (Open Geospatial Consortium) standards and uses WGS84 coordinate system.
--- Unlike PostGIS which uses GEOMETRY (planar) and GEOGRAPHY (spherical), Snowflake
--- only has GEOGRAPHY type, which always uses spherical calculations (great circle).
+-- it in multiple standard formats. Snowflake supports TWO geospatial data types:
+-- 
+-- GEOGRAPHY: Uses spherical geometry (WGS84), calculates distances using great-circle
+--            calculations. Best for global data, GPS coordinates, and when you need
+--            accurate distance/area calculations over large areas.
+--
+-- GEOMETRY: Uses planar geometry (Euclidean), treats coordinates as flat x,y coordinates.
+--           Best for local/regional data, CAD drawings, or when you need fast calculations
+--           and don't need spherical accuracy. Requires specifying a coordinate system (SRID).
+--
+-- This lab primarily uses GEOGRAPHY, but we'll explore GEOMETRY in an add-on section.
 
 // Set the output format to GeoJSON
 -- GeoJSON is a JSON-based format commonly used in web mapping applications.
@@ -215,8 +222,8 @@ from @~/osm_ny_shop_electronics_all.csv
 -- efficiently and supports spatial indexing for fast queries.
 
 // Create a new 'all' table in the current schema
--- GEOGRAPHY is Snowflake's geospatial data type. It stores geometries using WGS84.
--- Unlike PostGIS, Snowflake only has GEOGRAPHY (spherical), not GEOMETRY (planar).
+-- GEOGRAPHY is Snowflake's spherical geospatial data type. It stores geometries using WGS84.
+-- Snowflake also supports GEOMETRY (planar) type, which we'll explore in an add-on section.
 create or replace table electronics_all 
 (id number, coordinates geography, name string, type string);
 // Load the 'all' file into the table
@@ -756,6 +763,149 @@ select st_collect(polygon) from final_plot;
 
 
 -- ============================================================================
+-- ADD-ON: GEOMETRY DATA TYPE (Planar Geometry)
+-- ============================================================================
+-- Snowflake also supports GEOMETRY type for planar (Euclidean) geometry calculations.
+-- This section demonstrates when and how to use GEOMETRY vs GEOGRAPHY.
+
+-- ============================================================================
+-- WHEN TO USE GEOMETRY VS GEOGRAPHY
+-- ============================================================================
+-- Use GEOGRAPHY when:
+--   - Working with GPS coordinates (lat/lon)
+--   - Need accurate distance/area calculations over large areas
+--   - Data spans multiple continents or large regions
+--   - Working with web mapping applications (most use WGS84)
+--
+-- Use GEOMETRY when:
+--   - Working with local/regional data in a projected coordinate system
+--   - Need fast calculations (planar is faster than spherical)
+--   - Working with CAD drawings, floor plans, or engineering data
+--   - Data is in a specific local coordinate system (State Plane, UTM zone, etc.)
+--   - Distance/area accuracy over small areas is acceptable
+
+-- ============================================================================
+-- CREATING GEOMETRY OBJECTS
+-- ============================================================================
+-- GEOMETRY requires specifying a Spatial Reference System Identifier (SRID).
+-- Common SRIDs:
+--   - 4326: WGS84 (same as GEOGRAPHY uses internally)
+--   - 3857: Web Mercator (used by Google Maps, OpenStreetMap tiles)
+--   - 2263: NAD83 / New York Long Island (State Plane, feet)
+--   - 32618: WGS84 / UTM Zone 18N (meters) - covers NYC area
+
+-- Create a GEOMETRY table for local NYC data using State Plane coordinates
+-- Note: We'll use a simple example with WGS84 (4326) for demonstration
+create or replace table electronics_geometry 
+(id number, coordinates geometry, name string, type string);
+
+-- TO_GEOMETRY() converts strings to GEOMETRY type, similar to TO_GEOGRAPHY()
+-- Format: TO_GEOMETRY('<WKT>', <SRID>)
+-- Example: Creating a point in NYC using WGS84 (SRID 4326)
+select to_geometry('POINT(-73.986226 40.755702)', 4326) as geom_point;
+
+-- ST_MAKEPOINT() also works with GEOMETRY, but you need to specify SRID
+-- Note: ST_MAKEPOINT for GEOMETRY requires coordinates in the projection's units
+-- For WGS84 (4326), coordinates are still lat/lon, but stored as planar
+select st_makepoint(-73.986226, 40.755702)::geometry(4326) as geom_point;
+
+-- ============================================================================
+-- CONVERTING BETWEEN GEOGRAPHY AND GEOMETRY
+-- ============================================================================
+-- You can convert between GEOGRAPHY and GEOMETRY types:
+
+-- GEOGRAPHY to GEOMETRY: Cast to GEOMETRY with SRID 4326
+-- Note: GEOGRAPHY is always WGS84, so use SRID 4326
+select 
+    to_geography('POINT(-73.986226 40.755702)') as geog,
+    to_geography('POINT(-73.986226 40.755702)')::geometry(4326) as geom_from_geog;
+
+-- GEOMETRY to GEOGRAPHY: Cast to GEOGRAPHY (only works if SRID is 4326)
+-- If GEOMETRY has a different SRID, you must transform it first (see ST_TRANSFORM)
+select 
+    to_geometry('POINT(-73.986226 40.755702)', 4326) as geom,
+    to_geometry('POINT(-73.986226 40.755702)', 4326)::geography as geog_from_geom;
+
+-- ============================================================================
+-- GEOMETRY-SPECIFIC FUNCTIONS
+-- ============================================================================
+-- Most spatial functions work with both GEOGRAPHY and GEOMETRY, but some are GEOMETRY-specific:
+
+-- ST_TRANSFORM: Transform GEOMETRY from one SRID to another
+-- This is useful when you have data in a local coordinate system and need to convert it
+-- Example: Transform from State Plane (2263) to WGS84 (4326)
+-- Note: This example uses a hypothetical State Plane coordinate
+-- select st_transform(to_geometry('POINT(984000 195000)', 2263), 4326);
+
+-- ST_AREA for GEOMETRY: Calculates area in the units of the coordinate system
+-- For projected coordinate systems (like State Plane), this gives area in square feet/meters
+-- For WGS84 (4326), area calculations are less meaningful (degrees squared)
+select 
+    st_area(to_geometry('POLYGON((-73.99 40.75, -73.98 40.75, -73.98 40.76, -73.99 40.76, -73.99 40.75))', 4326)) as area_degrees_squared,
+    st_area(to_geography('POLYGON((-73.99 40.75, -73.98 40.75, -73.98 40.76, -73.99 40.76, -73.99 40.75))')) as area_sq_meters_geography;
+
+-- ============================================================================
+-- PRACTICAL EXAMPLE: Comparing GEOGRAPHY vs GEOMETRY Distance Calculations
+-- ============================================================================
+-- Let's compare distance calculations between two NYC points using both types:
+
+-- Create two points: Times Square and Central Park
+with points as (
+    select 
+        to_geography('POINT(-73.986226 40.755702)') as geog1,  -- Times Square
+        to_geography('POINT(-73.965355 40.782865)') as geog2,  -- Central Park
+        to_geometry('POINT(-73.986226 40.755702)', 4326) as geom1,
+        to_geometry('POINT(-73.965355 40.782865)', 4326) as geom2
+)
+select 
+    -- GEOGRAPHY: Great-circle distance (accurate for spherical Earth)
+    st_distance(geog1, geog2)::number(10,2) as distance_geography_meters,
+    -- GEOMETRY: Euclidean distance (treats lat/lon as flat x,y coordinates)
+    -- Note: For WGS84, this gives distance in degrees, which is not meaningful
+    -- For a proper comparison, you'd need a projected coordinate system
+    st_distance(geom1, geom2)::number(10,6) as distance_geometry_degrees,
+    -- The difference: GEOGRAPHY accounts for Earth's curvature, GEOMETRY doesn't
+    'GEOGRAPHY uses great-circle distance (accurate)' as note_geography,
+    'GEOMETRY uses Euclidean distance (only accurate for small areas)' as note_geometry
+from points;
+
+-- ============================================================================
+-- WORKING WITH PROJECTED COORDINATE SYSTEMS
+-- ============================================================================
+-- For local/regional work, you might use a projected coordinate system.
+-- Example: NYC State Plane (SRID 2263) uses feet as units
+
+-- Note: The following is a conceptual example. Actual State Plane coordinates
+-- would be different from lat/lon values.
+-- 
+-- If you had data in State Plane coordinates (in feet):
+-- select st_makepoint(984000, 195000)::geometry(2263) as state_plane_point;
+-- 
+-- Distance calculations would be in feet:
+-- select st_distance(
+--     st_makepoint(984000, 195000)::geometry(2263),
+--     st_makepoint(985000, 196000)::geometry(2263)
+-- ) as distance_feet;
+
+-- ============================================================================
+-- KEY DIFFERENCES SUMMARY
+-- ============================================================================
+-- GEOGRAPHY:
+--   - Always uses WGS84 (spherical)
+--   - Distance/area in meters
+--   - Great-circle calculations (accurate globally)
+--   - No SRID needed (always 4326 internally)
+--   - Best for: GPS data, web maps, global analysis
+--
+-- GEOMETRY:
+--   - Uses planar (Euclidean) calculations
+--   - Requires SRID specification
+--   - Distance/area in coordinate system units
+--   - Faster calculations for local data
+--   - Can use projected coordinate systems
+--   - Best for: Local/regional data, CAD, engineering
+
+-- ============================================================================
 -- LAB SUMMARY: Key Concepts Covered
 -- ============================================================================
 -- What we've covered in this lab:
@@ -768,7 +918,16 @@ select st_collect(polygon) from final_plot;
 -- 2. GEOGRAPHY DATA TYPE:
 --    - The GEOGRAPHY data type, its formats GeoJSON, WKT, EWKT, WKB, and EWKB
 --    - How to switch between output formats using ALTER SESSION
---    - Understanding that Snowflake uses spherical geometry (WGS84) by default
+--    - Understanding that GEOGRAPHY uses spherical geometry (WGS84)
+--    - Great-circle distance calculations for accurate global measurements
+
+-- 2b. GEOMETRY DATA TYPE (Add-on):
+--    - The GEOMETRY data type for planar (Euclidean) geometry
+--    - Understanding when to use GEOMETRY vs GEOGRAPHY
+--    - Working with Spatial Reference System Identifiers (SRIDs)
+--    - Converting between GEOGRAPHY and GEOMETRY types
+--    - Using ST_TRANSFORM for coordinate system transformations
+--    - Comparing distance calculations: spherical vs planar
 
 -- 3. DATA MANAGEMENT:
 --    - How to unload data to Snowflake stages (internal file storage)
@@ -781,18 +940,22 @@ select st_collect(polygon) from final_plot;
 
 -- 5. CONSTRUCTOR FUNCTIONS:
 --    - TO_GEOGRAPHY() to convert strings (WKT, WKB, GeoJSON) to GEOGRAPHY type
+--    - TO_GEOMETRY() to convert strings to GEOMETRY type with SRID specification
 --    - ST_MAKEPOINT() to create POINTs from separate longitude/latitude values
 --    - ST_MAKELINE() to create LINESTRINGs from collections of points
 --    - ST_MAKEPOLYGON() to create POLYGONs from closed LINESTRINGs
+--    - Type casting between GEOGRAPHY and GEOMETRY (::geography, ::geometry)
 
 -- 6. TRANSFORMATION FUNCTIONS:
 --    - ST_COLLECT() to aggregate multiple geometries into collections (MULTIPOINT, etc.)
 --    - Can also create GEOMETRYCOLLECTIONs containing different geometry types
 
 -- 7. MEASUREMENT FUNCTIONS:
---    - ST_DISTANCE() to calculate great-circle distance between geometries (in meters)
---    - ST_LENGTH() to calculate the length of LINESTRINGs (in meters)
---    - ST_PERIMETER() to calculate the perimeter of POLYGONs (in meters)
+--    - ST_DISTANCE() to calculate great-circle distance (GEOGRAPHY) or Euclidean distance (GEOMETRY)
+--    - ST_LENGTH() to calculate the length of LINESTRINGs (in meters for GEOGRAPHY)
+--    - ST_PERIMETER() to calculate the perimeter of POLYGONs (in meters for GEOGRAPHY)
+--    - ST_AREA() for calculating areas (meters² for GEOGRAPHY, coordinate system units for GEOMETRY)
+--    - ST_TRANSFORM() to transform GEOMETRY between coordinate systems (SRIDs)
 
 -- 8. SPATIAL PREDICATE FUNCTIONS (Relational):
 --    - ST_DWITHIN() to find geometries within a specified distance (distance-based)
